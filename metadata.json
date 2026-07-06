@@ -1,0 +1,6 @@
+{
+  "name": "Grace Bible",
+  "description": "A beautiful, modern, and lightweight Bible App supporting both Myanmar and English, with offline search, reading plans, and a Gemini-powered spiritual companion.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

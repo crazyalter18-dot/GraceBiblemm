@@ -1,0 +1,73 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@variant dark (&:where(.dark, .dark *));
+@variant sepia (&:where(.sepia, .sepia *));
+
+@theme {
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-serif: "Playfair Display", Georgia, serif;
+  --font-mono: "JetBrains Mono", monospace;
+  
+  --color-gold-50: #fbf7ee;
+  --color-gold-100: #f4ebd3;
+  --color-gold-200: #e8d3a1;
+  --color-gold-300: #dbb76f;
+  --color-gold-400: #ce9a43;
+  --color-gold-500: #b5802d;
+  --color-gold-600: #936222;
+  --color-gold-700: #714619;
+  --color-gold-800: #503011;
+  --color-gold-900: #321d0a;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #fcfbfa;
+  color: #1a1a1a;
+  transition: background-color 0.3s, color 0.3s;
+}
+
+html.dark body {
+  background-color: #020617;
+  color: #f8fafc;
+}
+
+html.sepia body {
+  background-color: #fbf7ee;
+  color: #321d0a;
+}
+
+/* Myanmar font support */
+.myanmar-font {
+  font-family: "Inter", "Pyidaungsu", "Myanmar3", "Yunghkio", sans-serif;
+  line-height: 1.8;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #475569;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* Soft gold transitions */
+.gold-transition {
+  transition: all 0.2s ease-in-out;
+}
