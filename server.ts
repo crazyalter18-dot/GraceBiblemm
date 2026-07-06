@@ -31,6 +31,55 @@ function getAiClient(): GoogleGenAI {
   return aiClient;
 }
 
+// Helper function to call Gemini with automatic fallback to gemini-3.1-flash-lite if the primary model fails or experiences high demand
+async function generateContentWithModelFallback(options: { contents: any; config?: any }): Promise<any> {
+  const ai = getAiClient();
+  const primaryModel = "gemini-3.5-flash";
+  const fallbackModel = "gemini-3.1-flash-lite";
+
+  try {
+    console.log(`Calling Gemini with primary model: ${primaryModel}`);
+    return await ai.models.generateContent({
+      model: primaryModel,
+      contents: options.contents,
+      config: options.config,
+    });
+  } catch (err: any) {
+    console.warn(`Primary model (${primaryModel}) failed. Error:`, err);
+    
+    const errMsg = (err.message || "").toLowerCase();
+    const errStatus = err.status || (err.error && err.error.code) || 0;
+    
+    // Check if the error indicates high demand, rate limits, server overload, or general unavailability
+    const isTemporaryError = 
+      errStatus === 503 || 
+      errStatus === 429 ||
+      errMsg.includes("503") || 
+      errMsg.includes("demand") || 
+      errMsg.includes("temporary") || 
+      errMsg.includes("unavailable") ||
+      errMsg.includes("overload") ||
+      errMsg.includes("resource_exhausted") ||
+      errMsg.includes("rate limit");
+
+    if (isTemporaryError || true) { // Always try the fallback model if primary fails for any reason to ensure robust user experience
+      console.log(`Retrying API call with fallback model: ${fallbackModel}`);
+      try {
+        return await ai.models.generateContent({
+          model: fallbackModel,
+          contents: options.contents,
+          config: options.config,
+        });
+      } catch (fallbackErr: any) {
+        console.error(`Fallback model (${fallbackModel}) also failed:`, fallbackErr);
+        throw err; // Throw the original error if fallback also fails
+      }
+    } else {
+      throw err;
+    }
+  }
+}
+
 // AI endpoint for spiritual counseling, verse explanations, and sermon help
 app.post("/api/gemini/ask", async (req, res) => {
   try {
@@ -88,8 +137,7 @@ User asks: ${message}
 Provide a thoughtful, scripturally sound response. Keep paragraphs readable and supportive. Frame it with elegant typography formatting (markdown). Focus strictly on encouraging, biblically-rooted guidance.`;
     }
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+    const response = await generateContentWithModelFallback({
       contents: prompt,
       config: {
         temperature: 0.75,
@@ -143,8 +191,7 @@ Each item in the array must look exactly like this:
 
 Ensure the verses are genuine, correct, and correctly matched between English (KJV) and Myanmar (Judson).`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+    const response = await generateContentWithModelFallback({
       contents: prompt,
       config: {
         temperature: 0.1,
@@ -295,8 +342,7 @@ The textEn and textMy fields should contain the pure scripture text without any 
 
 Respond ONLY with the JSON array. Do not include markdown code block formatting (such as \`\`\`json).`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+    const response = await generateContentWithModelFallback({
       contents: prompt,
       config: {
         temperature: 0.1, // extremely low temperature for accurate recall

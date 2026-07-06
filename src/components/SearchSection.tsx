@@ -1,9 +1,22 @@
 import React, { useState, useEffect } from "react";
 import { 
-  Search, BookOpen, AlertCircle, Copy, Bookmark, Check, Sparkles, Clock, Trash2, ChevronRight 
+  Search, BookOpen, AlertCircle, Copy, Bookmark, Check, Sparkles, Clock, Trash2, ChevronRight,
+  Heart, Shield, Anchor, Flame, Sun, Crown, Compass, X
 } from "lucide-react";
 import { bibleService } from "../services/bibleService";
 import { BibleBook, BibleVerse, Bookmark as BookmarkType } from "../types";
+
+// Suggested search topics for high-quality discoverability
+const suggestedTopics = [
+  { labelEn: "Grace", labelMy: "ကျေးဇူးတော်", queryEn: "Grace", queryMy: "ကျေးဇူးတော်", icon: Sparkles },
+  { labelEn: "Faith", labelMy: "ယုံကြည်ခြင်း", queryEn: "Faith", queryMy: "ယုံကြည်ခြင်း", icon: Shield },
+  { labelEn: "Love", labelMy: "မေတ္တာ", queryEn: "Love", queryMy: "မေတ္တာ", icon: Heart },
+  { labelEn: "Hope", labelMy: "မျှော်လင့်ခြင်း", queryEn: "Hope", queryMy: "မျှော်လင့်ခြင်း", icon: Compass },
+  { labelEn: "Peace", labelMy: "ငြိမ်သက်ခြင်း", queryEn: "Peace", queryMy: "ငြိမ်သက်ခြင်း", icon: Anchor },
+  { labelEn: "Salvation", labelMy: "ကယ်တင်ခြင်း", queryEn: "Salvation", queryMy: "ကယ်တင်ခြင်း", icon: Crown },
+  { labelEn: "Light", labelMy: "အလင်း", queryEn: "Light", queryMy: "အလင်း", icon: Sun },
+  { labelEn: "Holy Spirit", labelMy: "ဝိညာဉ်တော်", queryEn: "Spirit", queryMy: "ဝိညာဉ်တော်", icon: Flame }
+];
 
 interface SearchSectionProps {
   onNavigate: (tab: string, bookId?: number, chapter?: number) => void;
@@ -29,6 +42,12 @@ export default function SearchSection({
   const [hasSearched, setHasSearched] = useState(false);
   const [loading, setLoading] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [parsedReference, setParsedReference] = useState<{
+    book: BibleBook;
+    chapter: number;
+    verse?: number;
+    endVerse?: number;
+  } | null>(null);
   
   // Recent searches state
   const [recentSearches, setRecentSearches] = useState<string[]>(() => {
@@ -45,12 +64,123 @@ export default function SearchSection({
     localStorage.setItem("grace_bible_recent_searches", JSON.stringify(recentSearches));
   }, [recentSearches]);
 
+  // Utility to find the book matching the query
+  const findBookMatch = (queryText: string) => {
+    const books = bibleService.getBooks();
+    const sortedBooks = [...books].sort((a, b) => b.nameEn.length - a.nameEn.length);
+    const queryLower = queryText.toLowerCase().trim();
+    
+    for (const book of sortedBooks) {
+      const bookNames = [
+        book.nameEn.toLowerCase(),
+        book.nameMy,
+        book.abbrevEn.toLowerCase(),
+        book.abbrevMy,
+        book.nameMy.replace("ခရစ်ဝင်", ""),
+        book.nameMy.replace("ကျမ်း", ""),
+        book.nameMy.replace("ဝတ္ထု", ""),
+        book.nameMy.replace("ဩဝါဒစာ", ""),
+        book.nameMy.replace("သြဝါဒစာ", ""),
+      ].filter(Boolean);
+      
+      for (const name of bookNames) {
+        const escapedName = name.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&').replace(/\s+/g, '\\s*');
+        const regex = new RegExp(`^${escapedName}\\s*(.*)`, 'i');
+        const match = queryLower.match(regex);
+        if (match) {
+          const remaining = match[1].trim();
+          return { book, remaining };
+        }
+      }
+    }
+    return null;
+  };
+
+  // Utility to parse chapter and verse numbers
+  const parseChapterVerse = (remaining: string) => {
+    const matches = [...remaining.matchAll(/\d+/g)].map(m => parseInt(m[0]));
+    if (matches.length === 0) return null;
+    
+    const chapter = matches[0];
+    const verse = matches.length > 1 ? matches[1] : undefined;
+    const endVerse = matches.length > 2 ? matches[2] : undefined;
+    
+    return { chapter, verse, endVerse };
+  };
+
+  // Main high-precision Bible reference parser
+  const parseBibleReference = (rawQuery: string) => {
+    if (!rawQuery) return null;
+    
+    const myanmarToEnglishDigits = (text: string): string => {
+      const map: Record<string, string> = {
+        '၀': '0', '၁': '1', '၂': '2', '၃': '3', '၄': '4',
+        '၅': '5', '၆': '6', '၇': '7', '၈': '8', '၉': '9'
+      };
+      return text.replace(/[၀-၉]/g, m => map[m]);
+    };
+
+    const queryConverted = myanmarToEnglishDigits(rawQuery.trim()).replace(/း/g, ':');
+    const bookMatch = findBookMatch(queryConverted);
+    if (!bookMatch) return null;
+    
+    const { book, remaining } = bookMatch;
+    const numbers = parseChapterVerse(remaining);
+    if (!numbers) return null;
+    
+    if (numbers.chapter <= 0 || numbers.chapter > book.totalChapters) {
+      return null;
+    }
+    
+    return {
+      book,
+      chapter: numbers.chapter,
+      verse: numbers.verse,
+      endVerse: numbers.endVerse
+    };
+  };
+
   const runSearch = async (searchQuery: string) => {
     if (!searchQuery || searchQuery.trim().length < 2) return;
     
     setLoading(true);
     setHasSearched(false);
     setSelectedBookFilter(null); // reset book filter on new search
+    setParsedReference(null);
+
+    // 1. Try exact reference parsing first (Instant local lookup)
+    const ref = parseBibleReference(searchQuery);
+    if (ref) {
+      setParsedReference(ref);
+      try {
+        const verses = await bibleService.getVersesAsync(ref.book.id, ref.chapter);
+        let matched = verses;
+        if (ref.verse !== undefined) {
+          if (ref.endVerse !== undefined) {
+            matched = verses.filter(v => v.verse >= ref.verse! && v.verse <= ref.endVerse!);
+          } else {
+            matched = verses.filter(v => v.verse === ref.verse);
+          }
+        }
+        
+        const mappedResults = matched.map(v => ({ verse: v, book: ref.book }));
+        setResults(mappedResults);
+        
+        // Update recent searches
+        setRecentSearches(prev => {
+          const filtered = prev.filter(q => q.toLowerCase() !== searchQuery.toLowerCase());
+          return [searchQuery, ...filtered].slice(0, 5);
+        });
+      } catch (err) {
+        console.error("Direct reference search failed:", err);
+      } finally {
+        setLoading(false);
+        setHasSearched(true);
+      }
+      return;
+    }
+
+    // 2. Regular Keyword / Semantic Search
     try {
       const searchResults = await bibleService.searchBibleAsync(searchQuery);
       setResults(searchResults);
@@ -213,13 +343,27 @@ export default function SearchSection({
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t.placeholder}
               disabled={loading}
-              className="w-full pl-12 pr-4 py-3.5 rounded-2xl bg-white dark:bg-slate-900 text-sm font-normal text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-800 shadow-lg focus:outline-none focus:border-gold-400 focus:ring-1 focus:ring-gold-400 transition-all placeholder:text-slate-400 disabled:opacity-75"
+              className="w-full pl-12 pr-10 py-3.5 rounded-2xl bg-white dark:bg-slate-900 text-sm font-normal text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-800 shadow-lg focus:outline-none focus:border-gold-400 focus:ring-1 focus:ring-gold-400 transition-all placeholder:text-slate-400 disabled:opacity-75"
             />
+            {query && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  setResults([]);
+                  setHasSearched(false);
+                  setParsedReference(null);
+                }}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
           <button
             type="submit"
             disabled={loading}
-            className="px-6 py-3.5 bg-slate-950 hover:bg-slate-900 dark:bg-gold-500 dark:hover:bg-gold-600 text-white dark:text-slate-950 font-bold text-sm rounded-2xl shadow-lg transition-all active:scale-[0.98] disabled:opacity-75 flex items-center gap-2"
+            className="px-6 py-3.5 bg-slate-950 hover:bg-slate-900 dark:bg-gold-500 dark:hover:bg-gold-600 text-white dark:text-slate-950 font-bold text-sm rounded-2xl shadow-lg transition-all active:scale-[0.98] disabled:opacity-75 flex items-center gap-2 shrink-0"
           >
             {loading && <div className="animate-spin rounded-full h-4 w-4 border-2 border-white dark:border-slate-950 border-t-transparent"></div>}
             {loading ? t.searching : t.searchBtn}
@@ -255,6 +399,43 @@ export default function SearchSection({
         )}
       </div>
 
+      {/* Suggest Popular Topics (Only on empty state/before searching) */}
+      {!hasSearched && !loading && (
+        <div className="space-y-4 pt-6 animate-fade-in border-t border-slate-100 dark:border-slate-850">
+          <h2 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider text-center">
+            {uiLang === "en" ? "Explore Popular Topics" : "ခေါင်းစဉ်အလိုက် ကျမ်းချက်များကို ရှာဖွေပါ"}
+          </h2>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {suggestedTopics.map((topic, idx) => {
+              const IconComponent = topic.icon;
+              return (
+                <button
+                  key={idx}
+                  onClick={() => {
+                    const q = uiLang === "en" ? topic.queryEn : topic.queryMy;
+                    setQuery(q);
+                    runSearch(q);
+                  }}
+                  className="flex items-center gap-3 p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-850 hover:border-gold-400/50 dark:hover:border-gold-500/40 hover:bg-gold-50/10 dark:hover:bg-gold-950/5 transition-all group text-left shadow-sm cursor-pointer"
+                >
+                  <div className="w-9 h-9 rounded-xl bg-slate-50 dark:bg-slate-800/80 flex items-center justify-center text-slate-500 dark:text-slate-400 group-hover:text-gold-600 dark:group-hover:text-gold-400 group-hover:bg-gold-100/50 dark:group-hover:bg-gold-950/20 transition-all shrink-0">
+                    <IconComponent className="h-4.5 w-4.5" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-extrabold text-slate-850 dark:text-slate-150 truncate">
+                      {uiLang === "en" ? topic.labelEn : topic.labelMy}
+                    </p>
+                    <p className="text-[10px] text-slate-400 truncate">
+                      {uiLang === "en" ? `"${topic.queryEn}"` : `"${topic.queryMy}"`}
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Loading Spinner Area */}
       {loading && (
         <div className="flex flex-col items-center justify-center py-20 space-y-4">
@@ -268,6 +449,34 @@ export default function SearchSection({
       {/* Search results content */}
       {hasSearched && !loading && (
         <div className="space-y-6">
+          
+          {/* Direct Scripture Reference Match Banner */}
+          {parsedReference && (
+            <div className="p-4 rounded-2xl bg-gold-500/10 border border-gold-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm animate-fade-in">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gold-500/20 flex items-center justify-center text-gold-700 dark:text-gold-400 shrink-0">
+                  <Sparkles className="h-5 w-5 animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-slate-850 dark:text-gold-200">
+                    {uiLang === "en" ? "Exact Reference Lookup Matches" : "တိုက်ရိုက်ကျမ်းချက်ညွှန်းဆိုချက် တွေ့ရှိသည်"}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
+                    {uiLang === "en" 
+                      ? `Displaying verified verses for: ${parsedReference.book.nameEn} ${parsedReference.chapter}${parsedReference.verse ? `:${parsedReference.verse}` : ""}`
+                      : `အချက်အလက်မှန်ကန်သော ကျမ်းချက်များကို ပြသနေသည်- ${parsedReference.book.nameMy} အခန်းကြီး ${parsedReference.chapter}${parsedReference.verse ? `း${parsedReference.verse}` : ""}`}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => onNavigate("bible", parsedReference.book.id, parsedReference.chapter)}
+                className="w-full sm:w-auto px-4 py-2 text-xs font-bold rounded-xl bg-slate-950 text-white hover:bg-slate-900 dark:bg-gold-500 dark:text-slate-950 dark:hover:bg-gold-400 transition-all flex items-center justify-center gap-1.5 shadow-md active:scale-95"
+              >
+                <BookOpen className="h-3.5 w-3.5" />
+                <span>{uiLang === "en" ? "Read Whole Chapter" : "အခန်းကြီးတစ်ခုလုံးဖတ်ရန်"}</span>
+              </button>
+            </div>
+          )}
           
           {/* Filters Bar */}
           <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800/80 shadow-inner">
